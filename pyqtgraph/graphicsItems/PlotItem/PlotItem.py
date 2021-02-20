@@ -1,37 +1,32 @@
 # -*- coding: utf-8 -*-
-import sys
+import importlib
+import os
 import warnings
 import weakref
+
 import numpy as np
-import os
-from ...Qt import QtGui, QtCore, QT_LIB
-from ... import icons
+
+from ..AxisItem import AxisItem
+from ..ButtonItem import ButtonItem
+from ..GraphicsWidget import GraphicsWidget
+from ..InfiniteLine import InfiniteLine
+from ..LabelItem import LabelItem
+from ..LegendItem import LegendItem
+from ..PlotDataItem import PlotDataItem
+from ..ViewBox import ViewBox
 from ... import functions as fn
-from ...widgets.FileDialog import FileDialog
-from .. PlotDataItem import PlotDataItem
-from .. ViewBox import ViewBox
-from .. AxisItem import AxisItem
-from .. LabelItem import LabelItem
-from .. LegendItem import LegendItem
-from .. GraphicsWidget import GraphicsWidget
-from .. ButtonItem import ButtonItem
-from .. InfiniteLine import InfiniteLine
+from ... import icons, PlotCurveItem, ScatterPlotItem
+from ...Qt import QtGui, QtCore, QT_LIB
 from ...WidgetGroup import WidgetGroup
 from ...python2_3 import basestring
+from ...widgets.FileDialog import FileDialog
 
 translate = QtCore.QCoreApplication.translate
 
-import importlib
 ui_template = importlib.import_module(
     f'.plotConfigTemplate_{QT_LIB.lower()}', package=__package__)
 
 __all__ = ['PlotItem']
-
-try:
-    from metaarray import *
-    HAVE_METAARRAY = True
-except:
-    HAVE_METAARRAY = False
 
 
 class PlotItem(GraphicsWidget):
@@ -510,7 +505,11 @@ class PlotItem(GraphicsWidget):
         """
         Enable auto-scaling. The plot will continuously scale to fit the boundaries of its data.
         """
-        print("Warning: enableAutoScale is deprecated. Use enableAutoRange(axis, enable) instead.")
+        warnings.warn(
+            'PlotItem.enableAutoScale is deprecated, and will be removed in 0.13'
+            'Use PlotItem.enableAutoRange(axis, enable) instead',
+            DeprecationWarning, stacklevel=2
+        )
         self.vb.enableAutoRange(self.vb.XYAxes)
 
     def addItem(self, item, *args, **kargs):
@@ -567,7 +566,11 @@ class PlotItem(GraphicsWidget):
             self.legend.addItem(item, name=name)            
 
     def addDataItem(self, item, *args):
-        print("PlotItem.addDataItem is deprecated. Use addItem instead.")
+        warnings.warn(
+            'PlotItem.addDataItem is deprecated and will be removed in 0.13. '
+            'Use PlotItem.addItem instead',
+            DeprecationWarning, stacklevel=2
+        )    
         self.addItem(item, *args)
         
     def listDataItems(self):
@@ -576,7 +579,12 @@ class PlotItem(GraphicsWidget):
         return self.dataItems[:]
         
     def addCurve(self, c, params=None):
-        print("PlotItem.addCurve is deprecated. Use addItem instead.")
+        warnings.warn(
+            'PlotItem.addCurve is deprecated and will be removed in 0.13. '
+            'Use PlotItem.addItem instead.',
+            DeprecationWarning, stacklevel=2
+        )    
+
         self.addItem(c, params)
 
     def addLine(self, x=None, y=None, z=None, **kwds):
@@ -1006,7 +1014,7 @@ class PlotItem(GraphicsWidget):
             if numCurves != -1:
                 if self.ctrl.forgetTracesCheck.isChecked():
                     curve.clear()
-                    self.removeItem(curves[i])
+                    self.removeItem(curve)
                 else:
                     curve.hide()        
       
@@ -1163,7 +1171,11 @@ class PlotItem(GraphicsWidget):
         self.showAxis(axis, False)
             
     def showScale(self, *args, **kargs):
-        print("Deprecated. use showAxis() instead")
+        warnings.warn(
+            'PlotItem.showScale has been deprecated and will be removed in 0.13. '
+            'Use PlotItem.showAxis() instead',
+            DeprecationWarning, stacklevel=2
+        )    
         return self.showAxis(*args, **kargs)
             
     def hideButtons(self):

@@ -15,13 +15,13 @@ import sys
 import warnings
 
 import numpy as np
-from pyqtgraph.util.cupy_helper import getCupy
+from .util.cupy_helper import getCupy
 
 from . import debug, reload
 from .Qt import QtGui, QtCore, QT_LIB, QtVersion
 from . import Qt
 from .metaarray import MetaArray
-from .pgcollections import OrderedDict
+from collections import OrderedDict
 from .python2_3 import asUnicode, basestring
 
 Colors = {
@@ -262,7 +262,7 @@ def mkColor(*args):
                 a = int(c[6:8], 16)
         elif isinstance(args[0], QtGui.QColor):
             return QtGui.QColor(args[0])
-        elif isinstance(args[0], float):
+        elif np.issubdtype(type(args[0]), np.floating):
             r = g = b = int(args[0] * 255)
             a = 255
         elif hasattr(args[0], '__len__'):
@@ -275,7 +275,7 @@ def mkColor(*args):
                 return intColor(*args[0])
             else:
                 raise TypeError(err)
-        elif type(args[0]) == int:
+        elif np.issubdtype(type(args[0]), np.integer):
             return intColor(args[0])
         else:
             raise TypeError(err)
@@ -660,6 +660,35 @@ def affineSlice(data, shape, origin, vectors, axes, order=1, returnCoords=False,
         return (output, x)
     else:
         return output
+
+
+def interweaveArrays(*args):
+    """
+    Parameters
+    ----------
+
+    args : numpy.ndarray
+           series of 1D numpy arrays of the same length and dtype
+    
+    Returns
+    -------
+    numpy.ndarray
+        A numpy array with all the input numpy arrays interwoven
+
+    Examples
+    --------
+
+    >>> result = interweaveArrays(numpy.ndarray([0, 2, 4]), numpy.ndarray([1, 3, 5]))
+    >>> result
+    array([0, 1, 2, 3, 4, 5])
+    """
+
+    size = sum(x.size for x in args)
+    result = np.empty((size,), dtype=args[0].dtype)
+    n = len(args)
+    for index, array in enumerate(args):
+        result[index::n] = array
+    return result
 
 
 def interpolateArray(data, x, default=0.0, order=1):
@@ -1100,7 +1129,7 @@ def makeARGB(data, lut=None, levels=None, scale=None, useRGBA=False, output=None
             raise Exception('levels argument is required for float input types')
     if not isinstance(levels, xp.ndarray):
         levels = xp.array(levels)
-    levels = levels.astype(xp.float)
+    levels = levels.astype(xp.float64)
     if levels.ndim == 1:
         if levels.shape[0] != 2:
             raise Exception('levels argument must have length 2')
@@ -1209,7 +1238,11 @@ def makeARGB(data, lut=None, levels=None, scale=None, useRGBA=False, output=None
     # apply nan mask through alpha channel
     if nanMask is not None:
         alpha = True
-        imgData[nanMask, 3] = 0
+        # Workaround for https://github.com/cupy/cupy/issues/4693
+        if xp == cp:
+            imgData[nanMask, :, 3] = 0
+        else:
+            imgData[nanMask, 3] = 0
 
     profile('alpha channel')
     return imgData, alpha
@@ -1298,18 +1331,22 @@ def makeQImage(imgData, alpha=None, copy=True, transpose=True):
     # If the const constructor is used, subsequently calling any non-const method
     # will trigger the COW mechanism, i.e. a copy is made under the hood.
 
-    if QT_LIB == 'PyQt5':
-        # PyQt5 -> non-const constructor
-        img_ptr = imgData.ctypes.data
-    elif QT_LIB == 'PyQt6':
-        # PyQt5 -> const constructor
-        # PyQt6 -> non-const constructor
-        img_ptr = Qt.sip.voidptr(imgData)
+    if QT_LIB.startswith('PyQt'):
+        if QtCore.PYQT_VERSION == 0x60000:
+            # PyQt5          -> const
+            # PyQt6 >= 6.0.1 -> const
+            # PyQt6 == 6.0.0 -> non-const
+            img_ptr = Qt.sip.voidptr(imgData)
+        else:
+            # PyQt5          -> non-const
+            # PyQt6 >= 6.0.1 -> non-const
+            img_ptr = int(Qt.sip.voidptr(imgData))  # or imgData.ctypes.data
     else:
         # bindings that support ndarray
-        # PyQt5   -> const constructor
-        # PySide2 -> non-const constructor
-        # PySide6 -> non-const constructor
+        # PyQt5          -> const
+        # PyQt6 >= 6.0.1 -> const
+        # PySide2        -> non-const
+        # PySide6        -> non-const
         img_ptr = imgData
 
     img = QtGui.QImage(img_ptr, imgData.shape[1], imgData.shape[0], imgFormat)
@@ -1325,21 +1362,23 @@ def imageToArray(img, copy=False, transpose=True):
     The array will have shape (width, height, (b,g,r,a)).
     """
     fmt = img.format()
-    ptr = img.bits()
-    if QT_LIB in ['PySide', 'PySide2', 'PySide6']:
-        arr = np.frombuffer(ptr, dtype=np.ubyte)
-    else:
+    img_ptr = img.bits()
+
+    if QT_LIB.startswith('PyQt'):
+        # sizeInBytes() was introduced in Qt 5.10
+        # however PyQt5 5.12 will fail with:
+        #   "TypeError: QImage.sizeInBytes() is a private method"
+        # note that sizeInBytes() works fine with:
+        #   PyQt5 5.15, PySide2 5.12, PySide2 5.15
         try:
-            # removed in Qt6
-            nbytes = img.byteCount()
-        except AttributeError:
-            # introduced in Qt 5.10
-            # however Python 3.7 + PyQt5-5.12 in the CI fails with
-            # "TypeError: QImage.sizeInBytes() is a private method"
+            # 64-bits size
             nbytes = img.sizeInBytes()
-        ptr.setsize(nbytes)
-        arr = np.asarray(ptr)
-    
+        except (TypeError, AttributeError):
+            # 32-bits size
+            nbytes = img.byteCount()
+        img_ptr.setsize(nbytes)
+
+    arr = np.frombuffer(img_ptr, dtype=np.ubyte)
     arr = arr.reshape(img.height(), img.width(), 4)
     if fmt == img.Format_RGB32:
         arr[...,3] = 255
