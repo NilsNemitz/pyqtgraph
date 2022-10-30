@@ -319,6 +319,7 @@ class PlotCurveItem(GraphicsObject):
                 float( min(b[0], self.opts['fillLevel']) ), 
                 float( max(b[1], self.opts['fillLevel']) )
             ) # enforce float format for bounds, even if data format is different
+            print(b,'!!!')
 
         ## Add pen width only if it is non-cosmetic.
         pen = self.opts['pen']
